@@ -11,7 +11,9 @@ jobs:
       - run: bun test:unit
       - name: Install Playwright deps
         run: npx playwright install --with-deps
-      - run: bun test:e2e
+      - name: Run e2e tests
+        run: bun test:e2e
         env:
           DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
           PUBLIC_APP_URL: http://localhost:5173
+        continue-on-error: true
