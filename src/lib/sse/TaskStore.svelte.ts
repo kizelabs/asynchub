@@ -1,4 +1,5 @@
 // src/lib/sse/TaskStore.ts
+import { browser } from '$app/environment';
 import type { Task } from '$lib/db/schema';
 
 export class TaskStore {
@@ -8,7 +9,7 @@ export class TaskStore {
   private eventSource: EventSource | null = null;
 
   constructor(workspaceId: string) {
-    this.init(workspaceId);
+    if (browser) this.init(workspaceId);
   }
 
   private init(workspaceId: string) {
@@ -54,10 +55,12 @@ export class TaskStore {
 
   async addTask(title: string, workspaceId: string) {
     const tempId = `temp-${Date.now()}`;
+    const now = Date.now();
     this.tasks.push({
       id: tempId, title, workspaceId, status: 'todo',
-      version: 0, createdAt: new Date(), updatedAt: new Date()
-    } as Task);
+      assigneeId: null, version: 0,
+      createdAt: now, updatedAt: now
+    } as unknown as Task);
 
     try {
       const res = await fetch('/api/tasks', {

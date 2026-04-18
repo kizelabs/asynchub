@@ -30,7 +30,7 @@
   description={dialog.description}
   onclose={() => {
     dialog.open = false;
-    if (dialog.variant === 'success') goto('/dashboard');
+    if (dialog.variant === 'success') goto('/app/dashboard');
   }}
 />
 
@@ -73,6 +73,7 @@
   >
     <Input
       id="workspaceName"
+      name="workspaceName"
       label="Workspace name"
       bind:value={name}
       placeholder="e.g. Design Team"

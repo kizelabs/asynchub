@@ -1,21 +1,16 @@
 <script lang="ts">
-  import type { PageData } from '../$types';
-  import { TaskStore } from '$lib/sse/TaskStore';
   import type { PageData } from './$types';
-  export let data: PageData;
+  import { TaskStore } from '$lib/sse/TaskStore.svelte';
+
+  const { data }: { data: PageData } = $props();
 
   let newTask = $state('');
-  const store = new TaskStore(data.workspace.id);
+  let store = $state(new TaskStore(data.workspace.id));
 
-  $effect(() => () => store.destroy()); // Cleanup on unmount
+  $effect(() => () => store.destroy());
 
-  const statusColors = $derived({
-    todo: 'bg-gray-100 text-gray-700 border-gray-200',
-    in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
-    done: 'bg-green-50 text-green-700 border-green-200'
-  });
-
-  const addTask = async () => {
+  const addTask = async (e: Event) => {
+    e.preventDefault();
     if (!newTask.trim()) return;
     await store.addTask(newTask.trim(), data.workspace.id);
     newTask = '';
@@ -24,7 +19,7 @@
 
 <svelte:head><title>Tasks | {data.workspace.name}</title></svelte:head>
 
-<div class="space-y-6">
+<div class="space-y-6 p-4">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-semibold tracking-tight">Tasks</h1>
     {#if store.error}
@@ -37,7 +32,7 @@
     {/if}
   </div>
 
-  <form onsubmit|preventDefault={addTask} class="flex gap-3">
+  <form onsubmit={addTask} class="flex gap-3">
     <input 
       bind:value={newTask} 
       placeholder="Add a task..." 
@@ -50,23 +45,23 @@
   </form>
 
   <div class="grid gap-4 sm:grid-cols-3">
-    {#each ['todo', 'in_progress', 'done'] as status}
+    {#each ['todo', 'in_progress', 'done'] as status (status)}
       <div class="bg-white rounded-xl border border-gray-200 p-4 min-h-[300px]">
         <div class="flex items-center justify-between mb-4">
           <span class="text-sm font-medium text-gray-700 capitalize">{status.replace('_', ' ')}</span>
           <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-            {store.tasks.filter(t => t.status === status).length}
+            {store.tasks.filter((t: { status: string }) => t.status === status).length}
           </span>
         </div>
 
         <div class="space-y-3">
-          {#each store.tasks.filter(t => t.status === status) as task}
+          {#each store.tasks.filter((t: { status: string }) => t.status === status) as task (task.id)}
             <div class="p-3 bg-gray-50 rounded-lg border border-gray-100 hover:shadow-sm transition cursor-pointer group">
               <p class="text-sm text-gray-800">{task.title}</p>
               <div class="mt-2 flex gap-2">
-                {#each ['todo', 'in_progress', 'done'] as opt}
+                {#each ['todo', 'in_progress', 'done'] as opt (opt)}
                   <button 
-                    on:click={() => store.updateStatus(task.id, opt)}
+                    onclick={() => store.updateStatus(task.id, opt)}
                     disabled={task.status === opt}
                     class="text-xs px-2 py-1 rounded-md border transition {opt === task.status ? 'ring-2 ring-gray-900 font-medium' : 'opacity-50 hover:opacity-100'}">
                     {opt.replace('_', ' ')}

@@ -6,7 +6,7 @@ import { workspaceMembers, workspaces } from '$lib/db/schema';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
   if (!locals.user) {
-    redirect(302, '/auth/sign-in');
+    throw redirect(302, '/auth/sign-in');
   }
 
   const membership = await db
@@ -18,8 +18,10 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     .then((rows) => rows[0] ?? null);
 
   if (!membership) {
-    redirect(302, '/onboarding');
+    throw redirect(302, '/onboarding');
   }
+
+  locals.workspace = membership.workspace;
 
   return {
     user: locals.user,

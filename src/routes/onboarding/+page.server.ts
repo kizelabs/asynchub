@@ -16,7 +16,7 @@ export const load: PageServerLoad = async (event) => {
     .where(eq(workspaceMembers.userId, session.user.id))
     .limit(1);
   
-  if (existing.length) throw redirect(302, '/dashboard');
+  if (existing.length) throw redirect(302, '/app/dashboard');
 
   return { user: session.user };
 };

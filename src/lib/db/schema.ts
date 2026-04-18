@@ -143,3 +143,13 @@ export type Workspace = typeof workspaces.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  status: varchar('status', { length: 20 }).default('active').notNull(), // active, archived, draft
+  progress: integer('progress').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+export type Project = typeof projects.$inferSelect;

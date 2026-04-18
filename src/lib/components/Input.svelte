@@ -1,6 +1,7 @@
 <script lang="ts">
   let {
     id = undefined,
+    name = undefined,
     type = "text",
     label = undefined,
     value = $bindable(),
@@ -9,6 +10,7 @@
     class: className = "",
   }: {
     id?: string;
+    name?: string;
     type?: string;
     label?: string;
     value?: string;
@@ -24,6 +26,7 @@
   {/if}
   <input
     {id}
+    {name}
     {type}
     {placeholder}
     {required}
