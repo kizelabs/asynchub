@@ -11,9 +11,14 @@
 
 <svelte:head><title>Members | {data.workspace.name}</title></svelte:head>
 
-<div class="space-y-6">
+<div class="space-y-6 p-4">
   <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-semibold tracking-tight">Team Members</h1>
+    <div class="flex items-center gap-3">
+      <a href="/app/dashboard" class="p-2 rounded-lg hover:bg-gray-100 transition text-gray-500 hover:text-gray-900">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+      </a>
+      <h1 class="text-2xl font-semibold tracking-tight">Team Members</h1>
+    </div>
     <button class="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
       Invite Member
