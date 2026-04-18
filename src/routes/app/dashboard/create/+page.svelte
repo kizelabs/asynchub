@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { PageData } from '../$types';
   import { enhance } from '$app/forms';
-  let { data }: { data: PageData } = $props();
+  let { data }: { data: PageData & { projects: any[] } } = $props();
 
   let title = $state('');
   let description = $state('');
   let type = $state<'project' | 'task'>('project');
+  let selectedProjectId = $state<string>('');
 
-  const canSubmit = $derived(title.trim().length >= 3);
+  const canSubmit = $derived(title.trim().length >= 3 && (type !== 'task' || !!selectedProjectId));
 </script>
 
 <svelte:head><title>Create | {data.workspace.name}</title></svelte:head>
@@ -35,6 +36,9 @@
 
     <form method="POST" use:enhance class="space-y-5">
       <input type="hidden" name="type" value={type} />
+      {#if type === 'task' && selectedProjectId}
+        <input type="hidden" name="projectId" value={selectedProjectId} />
+      {/if}
       <div>
         <label for="title" class="block text-sm font-medium text-gray-700 mb-1.5">Title</label>
         <input 
@@ -58,6 +62,18 @@
           class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-gray-900 focus:outline-none resize-none"
         ></textarea>
       </div>
+
+      {#if type === 'task'}
+        <div>
+          <label for="projectId" class="block text-sm font-medium text-gray-700 mb-1.5">Assign to Project</label>
+          <select id="projectId" bind:value={selectedProjectId} class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-gray-900 focus:outline-none bg-white">
+            <option value="">Select a project...</option>
+            {#each data.projects as p (p.id)}
+              <option value={p.id}>{p.title}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
 
       <div class="flex justify-end gap-3 pt-2">
         <a href="/app/dashboard" class="px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-xl transition">Cancel</a>

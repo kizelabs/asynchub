@@ -23,6 +23,7 @@ export const workspaceMembers = pgTable('workspace_members', {
 export const tasks = pgTable('tasks', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }).notNull(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   title: varchar('title', { length: 255 }).notNull(),
   status: varchar('status', { length: 20 }).default('todo').notNull(), // todo, in_progress, done
   assigneeId: text('assignee_id').references(() => user.id),

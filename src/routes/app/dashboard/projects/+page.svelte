@@ -1,6 +1,36 @@
 <script lang="ts">
+	import { TaskStore } from '$lib/sse/TaskStore.svelte';
   import type { PageData } from './$types';
   const { data }: { data: PageData } = $props();
+
+  const workspaceId = $derived(data.workspace.id);
+  let store = $state<TaskStore | null>(null);
+
+  $effect(() => {
+    const s = new TaskStore(workspaceId);
+    store = s;
+    return () => s.destroy();
+  });
+
+  // $derived automatically tracks store.tasks & recalculates on any task change
+  const projectProgress = $derived.by(() => {
+    if (!store) return {};
+    const progressMap: Record<string, { total: number; done: number }> = {};
+    
+    for (const task of store.tasks) {
+      if (!task.projectId) continue;
+      if (!progressMap[task.projectId]) progressMap[task.projectId] = { total: 0, done: 0 };
+      progressMap[task.projectId].total++;
+      if (task.status === 'done') progressMap[task.projectId].done++;
+    }
+
+    // Convert to percentages
+    const result: Record<string, number> = {};
+    for (const [id, counts] of Object.entries(progressMap)) {
+      result[id] = Math.round((counts.done / counts.total) * 100);
+    }
+    return result;
+  });
 
   const statusColors = {
     active: 'bg-green-100 text-green-800 border-green-200',
@@ -47,10 +77,10 @@
         <div class="mt-4">
           <div class="flex justify-between text-xs text-gray-500 mb-1">
             <span>Progress</span>
-            <span>{project.progress}%</span>
+            <span>{projectProgress[project.id] ?? 0}%</span>
           </div>
           <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-            <div class="bg-blue-600 h-full rounded-full transition-all duration-500" style="width: {project.progress}%"></div>
+            <div class="bg-blue-600 h-full rounded-full transition-all duration-500" style="width: {projectProgress[project.id] ?? 0}%"></div>
           </div>
         </div>
       </div>

@@ -17,7 +17,14 @@ async function getUserWorkspace(userId: string) {
 
 export const load: PageServerLoad = async ({ parent }) => {
   const { workspace } = await parent();
-  return { workspace };
+  
+  const projectList = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.workspaceId, workspace.id))
+    .orderBy(projects.createdAt);
+  
+  return { workspace, projects: projectList };
 };
 
 export const actions: Actions = {
@@ -31,6 +38,7 @@ export const actions: Actions = {
     const title = data.get('title') as string;
     const description = data.get('description') as string;
     const type = (data.get('type') as string) || 'project';
+    const projectId = data.get('projectId') as string | null;
 
     if (!title || title.length < 3) {
       return fail(400, { message: 'Title must be at least 3 characters' });
@@ -40,7 +48,7 @@ export const actions: Actions = {
       if (type === 'project') {
         await db.insert(projects).values({ title, description, workspaceId: workspace.id });
       } else {
-        await db.insert(tasks).values({ title, status: 'todo', workspaceId: workspace.id });
+        await db.insert(tasks).values({ title, status: 'todo', workspaceId: workspace.id, projectId: projectId || null });
       }
     } catch (e) {
       console.error('[create] insert failed:', e);

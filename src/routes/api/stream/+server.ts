@@ -23,7 +23,17 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
   const stream = new ReadableStream({
     start(controller) {
       // Send initial state
-      db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId)).then((initial) => {
+      db.select({
+        id: tasks.id,
+        workspaceId: tasks.workspaceId,
+        projectId: tasks.projectId,
+        title: tasks.title,
+        status: tasks.status,
+        version: tasks.version,
+        updatedAt: tasks.updatedAt,
+        assigneeId: tasks.assigneeId,
+        createdAt: tasks.createdAt
+      }).from(tasks).where(eq(tasks.workspaceId, workspaceId)).then((initial) => {
         if (controller.desiredSize !== null) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'INIT', data: initial })}\n\n`));
         }
@@ -40,7 +50,17 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
       poll = setInterval(async () => {
         try {
           const updates = await db
-            .select()
+            .select({
+              id: tasks.id,
+              workspaceId: tasks.workspaceId,
+              projectId: tasks.projectId,
+              title: tasks.title,
+              status: tasks.status,
+              version: tasks.version,
+              updatedAt: tasks.updatedAt,
+              assigneeId: tasks.assigneeId,
+              createdAt: tasks.createdAt
+            })
             .from(tasks)
             .where(eq(tasks.workspaceId, workspaceId))
             .orderBy(tasks.updatedAt);
@@ -49,6 +69,17 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
             lastVersion = updates[0].version;
             if (controller.desiredSize !== null) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'SYNC', data: updates })}\n\n`));
+              
+              // Calculate project progress
+              const progressUpdates = updates.reduce((acc: Record<string, { total: number; done: number }>, t) => {
+                if (!t.projectId) return acc;
+                if (!acc[t.projectId]) acc[t.projectId] = { total: 0, done: 0 };
+                acc[t.projectId].total++;
+                if (t.status === 'done') acc[t.projectId].done++;
+                return acc;
+              }, {});
+              
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'PROJECT_PROGRESS', progressUpdates })}\n\n`));
             }
           }
         } catch { /* ignore on disconnect */ }
@@ -63,3 +94,5 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
 
   return new Response(stream);
 };
+
+
