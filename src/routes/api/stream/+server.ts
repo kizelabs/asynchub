@@ -17,18 +17,27 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
 
   let lastVersion = 0;
   const encoder = new TextEncoder();
+  let ping: ReturnType<typeof setInterval>;
+  let poll: ReturnType<typeof setInterval>;
 
   const stream = new ReadableStream({
-    async start(controller) {
+    start(controller) {
       // Send initial state
-      const initial = await db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId));
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'INIT', data: initial })}\n\n`));
+      db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId)).then((initial) => {
+        if (controller.desiredSize !== null) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'INIT', data: initial })}\n\n`));
+        }
+      }).catch(() => {});
 
       // Keep-alive ping
-      const ping = setInterval(() => controller.enqueue(encoder.encode(`:ping\n\n`)), 15000);
+      ping = setInterval(() => {
+        if (controller.desiredSize !== null) {
+          controller.enqueue(encoder.encode(`:ping\n\n`));
+        }
+      }, 15000);
 
       // Poll for changes (serverless-safe alternative to DB webhooks)
-      const poll = setInterval(async () => {
+      poll = setInterval(async () => {
         try {
           const updates = await db
             .select()
@@ -38,16 +47,17 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
           
           if (updates.length > 0 && updates[0].version > lastVersion) {
             lastVersion = updates[0].version;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'SYNC', data: updates })}\n\n`));
+            if (controller.desiredSize !== null) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'SYNC', data: updates })}\n\n`));
+            }
           }
-        } catch (e) { /* ignore on disconnect */ }
+        } catch { /* ignore on disconnect */ }
       }, 3000);
-
-      // Cleanup on client disconnect
-      return () => {
-        clearInterval(ping);
-        clearInterval(poll);
-      };
+    },
+    cancel() {
+      // Handle client disconnect - clear intervals
+      clearInterval(ping);
+      clearInterval(poll);
     }
   });
 
