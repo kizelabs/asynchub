@@ -38,7 +38,7 @@
   }
 </script>
 
-<AuthLayout title="Sign in" subtitle="Welcome back to AsyncHub">
+<AuthLayout title="Sign in" subtitle="Welcome back to AsyncHub.io">
   <form onsubmit={handleSubmit} class="space-y-1">
     <Input id="email" type="email" label="Email" bind:value={email} placeholder="you@company.com" required />
     <Input id="password" type="password" label="Password" bind:value={password} placeholder="••••••••" required />
