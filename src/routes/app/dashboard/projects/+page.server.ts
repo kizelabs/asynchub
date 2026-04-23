@@ -1,10 +1,14 @@
 import type { PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
 import { db } from '$lib/db';
 import { projects, tasks } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 
 export const load: PageServerLoad = async ({ parent }) => {
   const { workspace } = await parent();
+  if (!workspace) {
+    throw redirect(303, '/app/dashboard');
+  }
   // 1. Fetch projects
   const projectList = await db
     .select()

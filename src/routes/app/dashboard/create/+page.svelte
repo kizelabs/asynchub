@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { PageData } from '../$types';
+  import { resolve } from '$app/paths';
+  import type { PageData } from './$types';
   import { enhance } from '$app/forms';
-  let { data }: { data: PageData & { projects: any[] } } = $props();
+  let { data }: { data: PageData } = $props();
 
   let title = $state('');
   let description = $state('');
@@ -11,11 +12,11 @@
   const canSubmit = $derived(title.trim().length >= 3 && (type !== 'task' || !!selectedProjectId));
 </script>
 
-<svelte:head><title>Create | {data.workspace.name}</title></svelte:head>
+<svelte:head><title>Create | {data.workspace?.name ?? 'Workspace'}</title></svelte:head>
 
 <div class="max-w-2xl mx-auto space-y-6 p-4">
   <div class="flex items-center gap-4 text-sm text-gray-600">
-    <a href="/app/dashboard" class="hover:underline">Dashboard</a>
+    <a href={resolve('/app/dashboard')} class="hover:underline">Dashboard</a>
     <span>/</span>
     <span class="font-medium text-gray-900">Create {type === 'project' ? 'Project' : 'Task'}</span>
   </div>
@@ -76,7 +77,7 @@
       {/if}
 
       <div class="flex justify-end gap-3 pt-2">
-        <a href="/app/dashboard" class="px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-xl transition">Cancel</a>
+        <a href={resolve('/app/dashboard')} class="px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-xl transition">Cancel</a>
         <button 
           type="submit" 
           disabled={!canSubmit}
