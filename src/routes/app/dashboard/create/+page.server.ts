@@ -3,6 +3,7 @@ import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/db';
 import { eq } from 'drizzle-orm';
 import { projects, tasks, workspaceMembers, workspaces } from '$lib/db/schema';
+import { projectTitleSchema, taskTitleSchema } from '$lib/validation';
 
 async function getUserWorkspace(userId: string) {
   const row = await db
@@ -17,6 +18,9 @@ async function getUserWorkspace(userId: string) {
 
 export const load: PageServerLoad = async ({ parent }) => {
   const { workspace } = await parent();
+  if (!workspace) {
+    throw redirect(303, '/app/dashboard');
+  }
   
   const projectList = await db
     .select()
@@ -35,20 +39,21 @@ export const actions: Actions = {
     if (!workspace) return fail(401, { message: 'No workspace found' });
 
     const data = await request.formData();
-    const title = data.get('title') as string;
-    const description = data.get('description') as string;
+    const description = ((data.get('description') as string) ?? '').trim();
     const type = (data.get('type') as string) || 'project';
     const projectId = data.get('projectId') as string | null;
+    const titleSchema = type === 'task' ? taskTitleSchema : projectTitleSchema;
+    const parsedTitle = titleSchema.safeParse(data.get('title'));
 
-    if (!title || title.length < 3) {
-      return fail(400, { message: 'Title must be at least 3 characters' });
+    if (!parsedTitle.success) {
+      return fail(400, { message: parsedTitle.error.issues[0]?.message ?? 'Invalid title' });
     }
 
     try {
       if (type === 'project') {
-        await db.insert(projects).values({ title, description, workspaceId: workspace.id });
+        await db.insert(projects).values({ title: parsedTitle.data, description: description || null, workspaceId: workspace.id });
       } else {
-        await db.insert(tasks).values({ title, status: 'todo', workspaceId: workspace.id, projectId: projectId || null });
+        await db.insert(tasks).values({ title: parsedTitle.data, status: 'todo', workspaceId: workspace.id, projectId: projectId || null });
       }
     } catch (e) {
       console.error('[create] insert failed:', e);
