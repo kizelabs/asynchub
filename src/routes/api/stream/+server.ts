@@ -1,8 +1,40 @@
 // src/routes/api/stream/+server.ts
 import type { RequestHandler } from './$types';
 import { db } from '$lib/db';
-import { tasks } from '$lib/db/schema';
+import { taskAssignees, tasks } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
+
+async function listWorkspaceTasks(workspaceId: string) {
+  const [taskRows, assigneeRows] = await Promise.all([
+    db.select({
+      id: tasks.id,
+      workspaceId: tasks.workspaceId,
+      projectId: tasks.projectId,
+      title: tasks.title,
+      status: tasks.status,
+      version: tasks.version,
+      updatedAt: tasks.updatedAt,
+      createdAt: tasks.createdAt
+    }).from(tasks).where(eq(tasks.workspaceId, workspaceId)),
+    db.select({
+      taskId: taskAssignees.taskId,
+      userId: taskAssignees.userId
+    }).from(taskAssignees)
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .where(eq(tasks.workspaceId, workspaceId))
+  ]);
+
+  const assigneesByTask = assigneeRows.reduce((acc: Record<string, string[]>, row) => {
+    acc[row.taskId] ??= [];
+    acc[row.taskId].push(row.userId);
+    return acc;
+  }, {});
+
+  return taskRows.map((task) => ({
+    ...task,
+    assigneeIds: assigneesByTask[task.id] ?? []
+  }));
+}
 
 export const GET: RequestHandler = async ({ url, setHeaders }) => {
   const workspaceId = url.searchParams.get('workspace');
@@ -23,17 +55,7 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
   const stream = new ReadableStream({
     start(controller) {
       // Send initial state
-      db.select({
-        id: tasks.id,
-        workspaceId: tasks.workspaceId,
-        projectId: tasks.projectId,
-        title: tasks.title,
-        status: tasks.status,
-        version: tasks.version,
-        updatedAt: tasks.updatedAt,
-        assigneeId: tasks.assigneeId,
-        createdAt: tasks.createdAt
-      }).from(tasks).where(eq(tasks.workspaceId, workspaceId)).then((initial) => {
+      listWorkspaceTasks(workspaceId).then((initial) => {
         if (controller.desiredSize !== null) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'INIT', data: initial })}\n\n`));
         }
@@ -49,21 +71,7 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
       // Poll for changes (serverless-safe alternative to DB webhooks)
       poll = setInterval(async () => {
         try {
-          const updates = await db
-            .select({
-              id: tasks.id,
-              workspaceId: tasks.workspaceId,
-              projectId: tasks.projectId,
-              title: tasks.title,
-              status: tasks.status,
-              version: tasks.version,
-              updatedAt: tasks.updatedAt,
-              assigneeId: tasks.assigneeId,
-              createdAt: tasks.createdAt
-            })
-            .from(tasks)
-            .where(eq(tasks.workspaceId, workspaceId))
-            .orderBy(tasks.updatedAt);
+          const updates = await listWorkspaceTasks(workspaceId);
           
           if (updates.length > 0 && updates[0].version > lastVersion) {
             lastVersion = updates[0].version;
@@ -94,5 +102,3 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
 
   return new Response(stream);
 };
-
-

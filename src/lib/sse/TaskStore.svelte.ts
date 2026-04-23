@@ -2,8 +2,10 @@
 import { browser } from '$app/environment';
 import type { Task } from '$lib/db/schema';
 
+export type TaskRecord = Task & { assigneeIds?: string[] };
+
 export class TaskStore {
-  tasks = $state<Task[]>([]);
+  tasks = $state<TaskRecord[]>([]);
   connected = $state(false);
   error = $state<string | null>(null);
   private eventSource: EventSource | null = null;
@@ -40,41 +42,58 @@ export class TaskStore {
 
     const prevStatus = task.status;
     task.status = newStatus; // Optimistic UI
+    this.error = null;
 
     try {
-      await fetch('/api/tasks', {
+      const res = await fetch('/api/tasks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: newStatus })
       });
-    } catch {
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? 'Failed to update task');
+      }
+    } catch (error) {
       task.status = prevStatus; // Rollback on failure
-      this.error = 'Failed to update. Retrying...';
+      this.error = error instanceof Error ? error.message : 'Failed to update task';
     }
   }
 
-  async addTask(title: string, workspaceId: string) {
+  async addTask(
+    title: string,
+    workspaceId: string,
+    projectId: string | null = null,
+    assigneeIds: string[] = []
+  ) {
     const tempId = `temp-${Date.now()}`;
     const now = Date.now();
+    this.error = null;
     this.tasks.push({
-      id: tempId, title, workspaceId, status: 'todo',
-      assigneeId: null, version: 0,
-      createdAt: now, updatedAt: now
-    } as unknown as Task);
+      id: tempId, title, workspaceId, projectId, status: 'todo', assigneeIds,
+      version: 0, createdAt: now, updatedAt: now
+    } as unknown as TaskRecord);
 
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, workspaceId })
+        body: JSON.stringify({ title, workspaceId, projectId, assigneeIds })
       });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? 'Failed to create task');
+      }
+
       const saved = await res.json();
       // Replace temp with real
       const idx = this.tasks.findIndex(t => t.id === tempId);
       if (idx !== -1) this.tasks[idx] = saved;
-    } catch {
+    } catch (error) {
       this.tasks = this.tasks.filter(t => t.id !== tempId);
-      this.error = 'Failed to create task';
+      this.error = error instanceof Error ? error.message : 'Failed to create task';
     }
   }
 
