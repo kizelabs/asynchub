@@ -30,7 +30,9 @@ export const auth = betterAuth({
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url }) => {
       const { subject, html } = buildVerificationEmail(url, user.name);
-      void sendEmail({ to: user.email, subject, html });
+      sendEmail({ to: user.email, subject, html }).catch((err) => {
+        console.error('[auth] Failed to send verification email:', err);
+      });
     },
     autoSignInAfterVerification: true,
   },
@@ -54,6 +56,8 @@ export const auth = betterAuth({
     secureCookies: process.env.NODE_ENV === "production",
     crossSubDomainCookies: { enabled: false },
   },
+
+  trustedOrigins: [PUBLIC_APP_URL],
 
   user: {
     // Extend user schema if needed
