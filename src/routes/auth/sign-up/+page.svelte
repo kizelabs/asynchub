@@ -3,6 +3,7 @@
   import Input from "$lib/components/Input.svelte";
   import Button from "$lib/components/Button.svelte";
   import Dialog from "$lib/components/Dialog.svelte";
+  import Turnstile from "$lib/components/Turnstile.svelte";
   import { signUp } from "$lib/auth/client";
   import { signUpSchema } from "$lib/validation";
   import { page } from "$app/state";
@@ -25,6 +26,7 @@
   let confirmPassword = $state("");
   let validationErrors = $state<Record<string, string[]>>({});
   let loading = $state(false);
+  let turnstileToken = $state('');
 
   let dialog = $state<{ open: boolean; variant: 'success' | 'error'; title: string; description: string }>({
     open: false,
@@ -33,7 +35,44 @@
     description: '',
   });
 
-  const isFormValid = $derived(signUpSchema.safeParse({ name, email, password, confirmPassword }).success);
+  const isFormValid = $derived(signUpSchema.safeParse({ name, email, password, confirmPassword }).success && !!turnstileToken);
+
+  async function verifyTurnstile(): Promise<boolean> {
+    if (!turnstileToken) {
+      dialog = {
+        open: true,
+        variant: 'error',
+        title: 'Captcha required',
+        description: 'Please complete the captcha before submitting.',
+      };
+      return false;
+    }
+    try {
+      const res = await fetch('/api/turnstile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: turnstileToken })
+      });
+      if (!res.ok) {
+        dialog = {
+          open: true,
+          variant: 'error',
+          title: 'Verification failed',
+          description: 'Captcha verification failed. Please try again.',
+        };
+        return false;
+      }
+      return true;
+    } catch {
+      dialog = {
+        open: true,
+        variant: 'error',
+        title: 'Verification failed',
+        description: 'Captcha verification failed. Please try again.',
+      };
+      return false;
+    }
+  }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -46,6 +85,13 @@
     }
 
     loading = true;
+
+    const captchaValid = await verifyTurnstile();
+    if (!captchaValid) {
+      loading = false;
+      return;
+    }
+
     const { error: authError } = await signUp.email({
       name, email, password,
       callbackURL,
@@ -89,6 +135,10 @@
     <Input id="password" type="password" label="Password" bind:value={password} placeholder="••••••••" required />
     <Input id="confirmPassword" type="password" label="Confirm Password" bind:value={confirmPassword} placeholder="••••••••" required />
 
+    <div class="mt-4">
+      <Turnstile bind:token={turnstileToken} />
+    </div>
+
     {#if Object.keys(validationErrors).length > 0}
       <div class="p-3 rounded-lg bg-red-50 text-sm text-red-700 border border-red-200 mt-4">
         <ul class="list-disc pl-4 space-y-1">
@@ -99,7 +149,7 @@
       </div>
     {/if}
 
-    <Button type="submit" loading={loading} class="mt-4">Create account</Button>
+    <Button type="submit" loading={loading} disabled={!isFormValid} class="mt-4">Create account</Button>
   </form>
 
   <p class="mt-6 text-center text-sm text-gray-600">

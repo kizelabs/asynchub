@@ -2,6 +2,7 @@
 	import AuthLayout from '$lib/components/AuthLayout.svelte';
 	import Input from '$lib/components/Input.svelte';
 	import Button from '$lib/components/Button.svelte';
+	import Turnstile from '$lib/components/Turnstile.svelte';
 	import { signIn } from '$lib/auth/client';
 	import { signInSchema } from '$lib/validation';
 	import { page } from '$app/state';
@@ -23,8 +24,31 @@
 	let validationError = $state<string | null>(null);
 	let loading = $state(false);
 	let googleLoading = $state(false);
+	let turnstileToken = $state('');
 
-	const isFormValid = $derived(signInSchema.safeParse({ email, password }).success);
+	const isFormValid = $derived(signInSchema.safeParse({ email, password }).success && !!turnstileToken);
+
+	async function verifyTurnstile(): Promise<boolean> {
+		if (!turnstileToken) {
+			error = 'Please complete the captcha';
+			return false;
+		}
+		try {
+			const res = await fetch('/api/turnstile', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ token: turnstileToken })
+			});
+			if (!res.ok) {
+				error = 'Captcha verification failed. Please try again.';
+				return false;
+			}
+			return true;
+		} catch {
+			error = 'Captcha verification failed. Please try again.';
+			return false;
+		}
+	}
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
@@ -38,6 +62,13 @@
 		}
 
 		loading = true;
+
+		const captchaValid = await verifyTurnstile();
+		if (!captchaValid) {
+			loading = false;
+			return;
+		}
+
 		const { error: authError } = await signIn.email({
 			email,
 			password,
@@ -47,6 +78,19 @@
 
 		if (authError) error = authError.message ?? 'An unknown error occurred';
 		loading = false;
+	}
+
+	async function handleGoogleSignIn() {
+		error = null;
+		googleLoading = true;
+
+		const captchaValid = await verifyTurnstile();
+		if (!captchaValid) {
+			googleLoading = false;
+			return;
+		}
+
+		await signIn.social({ provider: 'google', callbackURL });
 	}
 </script>
 
@@ -69,6 +113,10 @@
 			required
 		/>
 
+		<div class="mt-4">
+			<Turnstile bind:token={turnstileToken} />
+		</div>
+
 		{#if error || validationError}
 			<div class="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
 				{error || validationError}
@@ -84,11 +132,8 @@
 	</div>
 
 	<button
-		onclick={async () => {
-			googleLoading = true;
-			await signIn.social({ provider: 'google', callbackURL });
-		}}
-		disabled={googleLoading}
+		onclick={handleGoogleSignIn}
+		disabled={googleLoading || !turnstileToken}
 		class="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-300 px-4 py-2.5 transition hover:bg-gray-50 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
 	>
 		{#if googleLoading}

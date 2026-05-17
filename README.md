@@ -6,6 +6,7 @@ AsyncHub is a SvelteKit app for async team collaboration. The current codebase f
 
 - Email/password authentication with email verification via Resend
 - Google OAuth sign-in via Better Auth
+- Cloudflare Turnstile captcha on sign-in and sign-up forms
 - Workspace onboarding for first-time users
 - Multi-workspace membership with workspace-scoped dashboard views
 - Project management with computed progress from task completion
@@ -21,6 +22,7 @@ AsyncHub is a SvelteKit app for async team collaboration. The current codebase f
 - Better Auth (email/password + Google OAuth)
 - Drizzle ORM + PostgreSQL (Neon serverless)
 - Resend (transactional emails)
+- Cloudflare Turnstile (bot protection)
 - Vercel adapter
 - Bun for local scripts
 - Vitest + Playwright
@@ -95,6 +97,10 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 # Resend (transactional emails)
 RESEND_API_KEY="re_your_api_key"
 RESEND_FROM_EMAIL="AsyncHub <noreply@yourdomain.com>"
+
+# Cloudflare Turnstile
+PUBLIC_TURNSTILE_SITE_KEY="your-site-key"
+TURNSTILE_SECRET_KEY="your-secret-key"
 ```
 
 #### Google OAuth setup
@@ -109,6 +115,14 @@ RESEND_FROM_EMAIL="AsyncHub <noreply@yourdomain.com>"
 2. Get your API key from the dashboard
 3. For production, verify your sending domain
 4. For development, use `onboarding@resend.dev` as the from address or send only to your account email
+
+#### Cloudflare Turnstile setup
+
+1. Go to [Cloudflare Dashboard → Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)
+2. Add a site and get your site key + secret key
+3. For local testing, use the always-pass test keys:
+   - Site key: `1x00000000000000000000AA`
+   - Secret key: `1x0000000000000000000000000000000AA`
 
 ### 3. Push the schema
 
