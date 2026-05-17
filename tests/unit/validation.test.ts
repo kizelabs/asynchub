@@ -5,6 +5,7 @@ import {
   projectTitleSchema,
   signInSchema,
   signUpSchema,
+  taskStatusSchema,
   taskTitleSchema,
   workspaceNameSchema
 } from "$lib/validation";
@@ -77,6 +78,20 @@ describe("taskTitleSchema", () => {
     const res = taskTitleSchema.safeParse("a".repeat(256));
     expect(res.success).toBe(false);
     expect(res.error?.issues[0]?.message).toBe("Task title must be 255 characters or fewer");
+  });
+});
+
+describe("taskStatusSchema", () => {
+  test("accepts supported task statuses", () => {
+    expect(taskStatusSchema.safeParse("todo").success).toBe(true);
+    expect(taskStatusSchema.safeParse("in_progress").success).toBe(true);
+    expect(taskStatusSchema.safeParse("done").success).toBe(true);
+  });
+
+  test("rejects unsupported task statuses", () => {
+    const res = taskStatusSchema.safeParse("blocked");
+    expect(res.success).toBe(false);
+    expect(res.error?.issues[0]?.message).toBe("Task status must be todo, in_progress, or done");
   });
 });
 

@@ -1,23 +1,24 @@
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/db';
-import { and, eq, sql } from 'drizzle-orm';
-import { workspaces, workspaceMembers, projects, tasks } from '$lib/db/schema';
+import { and, eq } from 'drizzle-orm';
+import { projects, workspaceMembers } from '$lib/db/schema';
 import { redirect, fail } from '@sveltejs/kit';
 import { slugify } from '$lib/utils';
 import { projectStatusSchema, projectTitleSchema, workspaceNameSchema } from '$lib/validation';
+import { getWorkspaceMembership } from '$lib/server/workspace-access';
+import {
+	createProject,
+	getDashboardOverview,
+	updateProjectStatus
+} from '$lib/server/services/projects';
+import { createWorkspaceForUser } from '$lib/server/services/workspaces';
 
 async function getMembership(workspaceId: string, userId: string) {
-	return db
-		.select({ id: workspaceMembers.id, role: workspaceMembers.role })
-		.from(workspaceMembers)
-		.where(
-			and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId))
-		)
-		.limit(1)
-		.then((rows) => rows[0] ?? null);
+	return getWorkspaceMembership(userId, workspaceId);
 }
 
-export const load: PageServerLoad = async ({ parent, locals }) => {
+export const load: PageServerLoad = async ({ parent, locals, depends }) => {
+	depends('app:tasks');
 	const { workspace, workspaces: userWorkspaces } = await parent();
 
 	if (!workspace) {
@@ -30,51 +31,14 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
 		};
 	}
 
-	const [projectList, workspaceTasks, memberCountRows, viewerRows] = await Promise.all([
-		db.select().from(projects).where(eq(projects.workspaceId, workspace.id)),
-		db
-			.select({ projectId: tasks.projectId, status: tasks.status })
-			.from(tasks)
-			.where(eq(tasks.workspaceId, workspace.id)),
-		db
-			.select({ count: sql<number>`count(*)::int` })
-			.from(workspaceMembers)
-			.where(eq(workspaceMembers.workspaceId, workspace.id)),
-		locals.user
-			? db
-					.select({ role: workspaceMembers.role })
-					.from(workspaceMembers)
-					.where(
-						and(
-							eq(workspaceMembers.workspaceId, workspace.id),
-							eq(workspaceMembers.userId, locals.user.id)
-						)
-					)
-					.limit(1)
-			: Promise.resolve([])
-	]);
-
-	const counts = new Map<string, { total: number; done: number }>();
-	for (const t of workspaceTasks) {
-		if (!t.projectId) continue;
-		const entry = counts.get(t.projectId) ?? { total: 0, done: 0 };
-		entry.total++;
-		if (t.status === 'done') entry.done++;
-		counts.set(t.projectId, entry);
-	}
-
-	const projectsWithProgress = projectList.map((p) => {
-		const c = counts.get(p.id);
-		const progress = c && c.total > 0 ? Math.round((c.done / c.total) * 100) : 0;
-		return { ...p, progress, taskTotal: c?.total ?? 0, taskDone: c?.done ?? 0 };
-	});
+	const overview = await getDashboardOverview(workspace.id, locals.user!.id);
 
 	return {
 		workspace,
 		workspaces: userWorkspaces,
-		projects: projectsWithProgress,
-		memberCount: memberCountRows[0]?.count ?? 0,
-		viewerRole: viewerRows[0]?.role ?? null
+		projects: overview.projects,
+		memberCount: overview.memberCount,
+		viewerRole: overview.viewerRole
 	};
 };
 
@@ -86,31 +50,24 @@ export const actions: Actions = {
 		const parsedName = workspaceNameSchema.safeParse(formData.get('workspaceName'));
 
 		if (!parsedName.success) {
-			return fail(400, { message: parsedName.error.issues[0]?.message ?? 'Invalid workspace name' });
+			return fail(400, {
+				message: parsedName.error.issues[0]?.message ?? 'Invalid workspace name'
+			});
 		}
 
 		const slug = slugify(parsedName.data);
 		const uniqueSlug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
+		let createdWorkspaceId: string;
 
 		try {
-			await db.transaction(async (tx) => {
-				const [workspace] = await tx
-					.insert(workspaces)
-					.values({ name: parsedName.data, slug: uniqueSlug })
-					.returning();
-
-				await tx.insert(workspaceMembers).values({
-					workspaceId: workspace.id,
-					userId: locals.user!.id,
-					role: 'owner'
-				});
-			});
+			const workspace = await createWorkspaceForUser(locals.user.id, parsedName.data, uniqueSlug);
+			createdWorkspaceId = workspace.id;
 		} catch (e) {
 			console.error('[dashboard] workspace creation failed:', e);
 			return fail(500, { message: 'Failed to create workspace. Please try again.' });
 		}
 
-		throw redirect(303, '/app/dashboard');
+		throw redirect(303, `/app/dashboard?workspace=${createdWorkspaceId}`);
 	},
 
 	createProject: async ({ request, locals }) => {
@@ -133,11 +90,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			await db.insert(projects).values({
-				workspaceId,
-				title: parsedTitle.data,
-				description: description || null
-			});
+			await createProject(workspaceId, parsedTitle.data, description || null);
 		} catch (e) {
 			console.error('[dashboard] project creation failed:', e);
 			return fail(500, { message: 'Failed to create project. Please try again.' });
@@ -160,7 +113,9 @@ export const actions: Actions = {
 
 		const parsedStatus = projectStatusSchema.safeParse(status);
 		if (!parsedStatus.success) {
-			return fail(400, { message: parsedStatus.error.issues[0]?.message ?? 'Invalid project status' });
+			return fail(400, {
+				message: parsedStatus.error.issues[0]?.message ?? 'Invalid project status'
+			});
 		}
 
 		const membership = await getMembership(workspaceId, locals.user.id);
@@ -179,10 +134,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			await db
-				.update(projects)
-				.set({ status: parsedStatus.data })
-				.where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)));
+			await updateProjectStatus(workspaceId, projectId, parsedStatus.data);
 		} catch (e) {
 			console.error('[dashboard] project status update failed:', e);
 			return fail(500, { message: 'Failed to update project status. Please try again.' });

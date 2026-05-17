@@ -28,6 +28,10 @@ export const taskTitleSchema = z.string()
   .min(3, "Task title must be at least 3 characters")
   .max(255, "Task title must be 255 characters or fewer");
 
+export const taskStatusSchema = z.enum(["todo", "in_progress", "done"], {
+  error: () => ({ message: "Task status must be todo, in_progress, or done" })
+});
+
 export const projectStatusSchema = z.enum(["active", "paused", "completed"], {
   error: () => ({ message: "Project status must be active, paused, or completed" })
 });
@@ -42,5 +46,6 @@ export type SignUpInput = z.infer<typeof signUpSchema>;
 export type WorkspaceNameInput = z.infer<typeof workspaceNameSchema>;
 export type ProjectTitleInput = z.infer<typeof projectTitleSchema>;
 export type TaskTitleInput = z.infer<typeof taskTitleSchema>;
+export type TaskStatusInput = z.infer<typeof taskStatusSchema>;
 export type ProjectStatusInput = z.infer<typeof projectStatusSchema>;
 export type InviteEmailInput = z.infer<typeof inviteEmailSchema>;

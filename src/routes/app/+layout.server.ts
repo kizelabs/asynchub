@@ -1,30 +1,29 @@
 import { redirect } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
 import type { LayoutServerLoad } from './$types';
-import { db } from '$lib/db';
-import { workspaceMembers, workspaces } from '$lib/db/schema';
+import { getUserWorkspaceState } from '$lib/server/services/workspaces';
 
-export const load: LayoutServerLoad = async ({ locals }) => {
-  if (!locals.user) {
-    throw redirect(302, '/auth/sign-in');
-  }
+export const load: LayoutServerLoad = async ({ locals, url }) => {
+	if (!locals.user) {
+		throw redirect(302, '/auth/sign-in');
+	}
 
-  const membership = await db
-    .select({ workspace: workspaces })
-    .from(workspaceMembers)
-    .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
-    .where(eq(workspaceMembers.userId, locals.user.id))
-    .limit(1)
-    .then((rows) => rows[0] ?? null);
+	const { workspaces, activeWorkspace } = await getUserWorkspaceState(
+		locals.user.id,
+		url.searchParams.get('workspace')
+	);
 
-  if (!membership) {
-    throw redirect(302, '/onboarding');
-  }
+	if (workspaces.length === 0) {
+		throw redirect(302, '/onboarding');
+	}
 
-  locals.workspace = membership.workspace;
+	// Set workspace in locals only if it was explicitly selected
+	if (activeWorkspace) {
+		locals.workspace = activeWorkspace;
+	}
 
-  return {
-    user: locals.user,
-    workspace: membership.workspace,
-  };
+	return {
+		user: locals.user,
+		workspace: activeWorkspace,
+		workspaces
+	};
 };

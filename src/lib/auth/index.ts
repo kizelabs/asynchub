@@ -4,8 +4,9 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { getRequestEvent } from '$app/server';
 import { db } from "$lib/db";
 import { PUBLIC_APP_URL } from '$env/static/public';
-import { BETTER_AUTH_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from '$env/static/private';
+import { BETTER_AUTH_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from '$env/static/private';
 import { randomUUID } from 'crypto';
+import { sendEmail, buildVerificationEmail, buildPasswordResetEmail } from '$lib/server/email';
 
 export const auth = betterAuth({
   baseURL: PUBLIC_APP_URL,
@@ -19,13 +20,22 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: true,
     minPasswordLength: 8,
+    sendResetPassword: async ({ user, url }) => {
+      const { subject, html } = buildPasswordResetEmail(url, user.name);
+      void sendEmail({ to: user.email, subject, html });
+    },
+  },
+
+  emailVerification: {
+    sendOnSignUp: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      const { subject, html } = buildVerificationEmail(url, user.name);
+      void sendEmail({ to: user.email, subject, html });
+    },
+    autoSignInAfterVerification: true,
   },
 
   socialProviders: {
-    github: {
-      clientId: GITHUB_CLIENT_ID || "",
-      clientSecret: GITHUB_CLIENT_SECRET || "",
-    },
     google: {
       clientId: GOOGLE_CLIENT_ID || "",
       clientSecret: GOOGLE_CLIENT_SECRET || "",

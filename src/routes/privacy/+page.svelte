@@ -83,7 +83,7 @@
 
       <section>
         <h2 class="text-lg font-semibold text-gray-900 mb-3">9. Third-Party OAuth</h2>
-        <p>If you sign in using GitHub or Google, we receive basic profile information (name, email, avatar) from those providers. Their use of your data is governed by their respective privacy policies.</p>
+        <p>If you sign in using Google, we receive basic profile information (name, email, avatar) from that provider. Their use of your data is governed by their respective privacy policy.</p>
       </section>
 
       <section>

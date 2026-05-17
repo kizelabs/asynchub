@@ -1,10 +1,14 @@
 import type { Actions, PageServerLoad } from './$types';
 import { db } from '$lib/db';
 import { and, eq, isNull } from 'drizzle-orm';
-import { workspaceMembers, workspaceInvitations, user } from '$lib/db/schema';
+import { workspaceMembers, workspaceInvitations, workspaces, user } from '$lib/db/schema';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { inviteEmailSchema } from '$lib/validation';
 import { randomBytes } from 'crypto';
+import { getWorkspaceMembership } from '$lib/server/workspace-access';
+import { getMembersPageData } from '$lib/server/services/members';
+import { sendEmail, buildInvitationEmail } from '$lib/server/email';
+import { PUBLIC_APP_URL } from '$env/static/public';
 
 const INVITE_TTL_DAYS = 14;
 
@@ -19,54 +23,13 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
 		throw redirect(303, `/app/dashboard?workspace=${workspace.id}`);
 	}
 
-	const [members, invitations] = await Promise.all([
-		db
-			.select({
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				image: user.image,
-				role: workspaceMembers.role,
-				joinedAt: workspaceMembers.joinedAt
-			})
-			.from(workspaceMembers)
-			.innerJoin(user, eq(workspaceMembers.userId, user.id))
-			.where(eq(workspaceMembers.workspaceId, workspace.id))
-			.orderBy(workspaceMembers.joinedAt),
-		db
-			.select({
-				id: workspaceInvitations.id,
-				email: workspaceInvitations.email,
-				token: workspaceInvitations.token,
-				invitedBy: workspaceInvitations.invitedBy,
-				expiresAt: workspaceInvitations.expiresAt,
-				createdAt: workspaceInvitations.createdAt
-			})
-			.from(workspaceInvitations)
-			.where(
-				and(
-					eq(workspaceInvitations.workspaceId, workspace.id),
-					isNull(workspaceInvitations.acceptedAt)
-				)
-			)
-			.orderBy(workspaceInvitations.createdAt)
-	]);
+	const { members, invitations } = await getMembersPageData(workspace.id);
 
 	return { workspace, members, invitations };
 };
 
 async function getWorkspaceForUser(userId: string, workspaceId: string) {
-	const [row] = await db
-		.select({ id: workspaceMembers.workspaceId, role: workspaceMembers.role })
-		.from(workspaceMembers)
-		.where(
-			and(
-				eq(workspaceMembers.workspaceId, workspaceId),
-				eq(workspaceMembers.userId, userId)
-			)
-		)
-		.limit(1);
-	return row ?? null;
+	return getWorkspaceMembership(userId, workspaceId);
 }
 
 export const actions: Actions = {
@@ -129,6 +92,19 @@ export const actions: Actions = {
 			console.error('[members.invite] failed:', e);
 			return fail(500, { invite: { message: 'Failed to create invitation.' } });
 		}
+
+		// Send invitation email via Resend
+		const inviteUrl = `${PUBLIC_APP_URL}/invite/${token}`;
+		const [workspace] = await db
+			.select({ name: workspaces.name })
+			.from(workspaces)
+			.where(eq(workspaces.id, workspaceId))
+			.limit(1);
+		const workspaceName = workspace?.name ?? 'a workspace';
+		const inviterName = locals.user.name;
+
+		const { subject, html } = buildInvitationEmail(inviteUrl, workspaceName, inviterName);
+		void sendEmail({ to: email, subject, html });
 
 		return { invite: { success: true as const, email, token } };
 	},
@@ -195,10 +171,7 @@ export const actions: Actions = {
 			await db
 				.delete(workspaceMembers)
 				.where(
-					and(
-						eq(workspaceMembers.workspaceId, workspaceId),
-						eq(workspaceMembers.userId, memberId)
-					)
+					and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, memberId))
 				);
 		} catch (e) {
 			console.error('[members.remove] failed:', e);

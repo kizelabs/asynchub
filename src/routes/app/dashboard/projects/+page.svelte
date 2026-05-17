@@ -1,91 +1,118 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
+	import type { PageData } from './$types';
+	import AppShell from '$lib/components/dashboard/AppShell.svelte';
+	import PageHeader from '$lib/components/dashboard/PageHeader.svelte';
+	import { formatShortDate } from '$lib/presentation/formatters';
 	import { TaskStore } from '$lib/sse/TaskStore.svelte';
-  import type { PageData } from './$types';
-  const { data }: { data: PageData } = $props();
 
-  const workspaceId = $derived(data.workspace?.id ?? '');
-  let store = $state<TaskStore | null>(null);
+	const { data }: { data: PageData } = $props();
 
-  $effect(() => {
-    if (!workspaceId) return;
-    const s = new TaskStore(workspaceId);
-    store = s;
-    return () => s.destroy();
-  });
+	const workspaceId = $derived(data.workspace?.id ?? '');
+	const workspaceName = $derived(data.workspace?.name ?? 'Workspace');
+	const userName = $derived(data.user.name ?? data.user.email.split('@')[0]);
 
-  // $derived automatically tracks store.tasks & recalculates on any task change
-  const projectProgress = $derived.by(() => {
-    if (!store) return {};
-    const progressMap: Record<string, { total: number; done: number }> = {};
-    
-    for (const task of store.tasks) {
-      if (!task.projectId) continue;
-      if (!progressMap[task.projectId]) progressMap[task.projectId] = { total: 0, done: 0 };
-      progressMap[task.projectId].total++;
-      if (task.status === 'done') progressMap[task.projectId].done++;
-    }
+	let store = $state<TaskStore | null>(null);
 
-    // Convert to percentages
-    const result: Record<string, number> = {};
-    for (const [id, counts] of Object.entries(progressMap)) {
-      result[id] = Math.round((counts.done / counts.total) * 100);
-    }
-    return result;
-  });
+	$effect(() => {
+		if (!data.workspace) return;
+		const taskStore = new TaskStore(data.workspace.id);
+		store = taskStore;
+		return () => {
+			taskStore.destroy();
+			store = null;
+		};
+	});
 
-  const statusColors = {
-    active: 'bg-green-100 text-green-800 border-green-200',
-    draft: 'bg-amber-100 text-amber-800 border-amber-200',
-    archived: 'bg-gray-100 text-gray-700 border-gray-200'
-  };
+	const projectsWithLiveProgress = $derived.by(() => {
+		const progressMap = store?.projectProgress ?? {};
+		return data.projects.map((project) => {
+			const counts = progressMap[project.id];
+			if (!counts) return project;
+			const progress = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+			return { ...project, progress, taskTotal: counts.total, taskDone: counts.done };
+		});
+	});
+
+	const statusColors = {
+		active: 'bg-green-100 text-green-800 border-green-200',
+		paused: 'bg-amber-100 text-amber-800 border-amber-200',
+		completed: 'bg-gray-100 text-gray-700 border-gray-200'
+	};
 </script>
 
-<svelte:head><title>Projects | {data.workspace?.name ?? 'Workspace'}</title></svelte:head>
+<svelte:head>
+	<title>Projects | {workspaceName}</title>
+</svelte:head>
 
-<div class="space-y-6 p-4">
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <a href={resolve('/app/dashboard')} aria-label="Back to dashboard" class="p-2 rounded-lg hover:bg-gray-100 transition text-gray-500 hover:text-gray-900">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-      </a>
-      <h1 class="text-2xl font-semibold tracking-tight">Active Projects</h1>
-    </div>
-    <a href={resolve('/app/dashboard/create')} class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-800 transition">
-      New Project
-    </a>
-  </div>
+<AppShell
+	{userName}
+	backHref={`/app/dashboard?workspace=${workspaceId}`}
+	backLabel="Back to dashboard"
+>
+	{#snippet children()}
+		<PageHeader
+			title="Projects"
+			description={`Browse projects in ${workspaceName}.`}
+			breadcrumbs={[
+				{ label: workspaceName, href: `/app/dashboard?workspace=${workspaceId}` },
+				{ label: 'Projects' }
+			]}
+		>
+			{#snippet actions()}
+				<a
+					href={`/app/dashboard/create?workspace=${workspaceId}`}
+					class="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+				>
+					New Project
+				</a>
+			{/snippet}
+		</PageHeader>
 
-  {#if data.projects.length === 0}
-    <div class="text-center py-16 bg-white rounded-xl border border-dashed border-gray-300">
-      <p class="text-gray-500">No projects yet. Create your first one to get started.</p>
-      <a href={resolve('/app/dashboard/create')} class="mt-4 inline-flex text-sm font-medium text-blue-600 hover:underline">Create Project →</a>
-    </div>
-  {/if}
-
-  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    {#each data.projects as project (project.id)}
-      <div class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition group">
-        <div class="flex items-start justify-between mb-3">
-          <span class={`px-2 py-0.5 text-xs font-medium rounded-full border ${statusColors[project.status as keyof typeof statusColors]}`}>
-            {project.status}
-          </span>
-          <span class="text-xs text-gray-400">{new Date(project.createdAt).toLocaleDateString()}</span>
-        </div>
-        <h3 class="font-medium text-gray-900 group-hover:text-blue-600 transition">{project.title}</h3>
-        {#if project.description}
-          <p class="text-sm text-gray-500 mt-1 line-clamp-2">{project.description}</p>
-        {/if}
-        <div class="mt-4">
-          <div class="flex justify-between text-xs text-gray-500 mb-1">
-            <span>Progress</span>
-            <span>{projectProgress[project.id] ?? 0}%</span>
-          </div>
-          <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-            <div class="bg-blue-600 h-full rounded-full transition-all duration-500" style="width: {projectProgress[project.id] ?? 0}%"></div>
-          </div>
-        </div>
-      </div>
-    {/each}
-  </div>
-</div>
+		{#if data.projects.length === 0}
+			<div class="rounded-xl border border-dashed border-gray-300 bg-white py-16 text-center">
+				<p class="text-gray-500">No projects yet. Create your first one to get started.</p>
+				<a
+					href={`/app/dashboard/create?workspace=${workspaceId}`}
+					class="mt-4 inline-flex text-sm font-medium text-blue-600 hover:underline"
+				>
+					Create Project →
+				</a>
+			</div>
+		{:else}
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				{#each projectsWithLiveProgress as project (project.id)}
+					<div
+						class="group rounded-xl border border-gray-200 bg-white p-5 transition hover:shadow-md"
+					>
+						<div class="mb-3 flex items-start justify-between">
+							<span
+								class={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusColors[project.status as keyof typeof statusColors] ?? statusColors.active}`}
+							>
+								{project.status}
+							</span>
+							<span class="text-xs text-gray-400">{formatShortDate(project.createdAt)}</span>
+						</div>
+						<h3 class="font-medium text-gray-900 transition group-hover:text-blue-600">
+							{project.title}
+						</h3>
+						{#if project.description}
+							<p class="mt-1 line-clamp-2 text-sm text-gray-500">{project.description}</p>
+						{/if}
+						<div class="mt-4">
+							<div class="mb-1 flex justify-between text-xs text-gray-500">
+								<span>Progress</span>
+								<span>{project.progress ?? 0}%</span>
+							</div>
+							<div class="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+								<div
+									class="h-full rounded-full bg-blue-600 transition-all duration-500"
+									style={`width: ${project.progress ?? 0}%`}
+								></div>
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/snippet}
+</AppShell>

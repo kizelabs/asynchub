@@ -9,6 +9,7 @@ declare global {
 			user?: User;
 			session?: Session;
 			workspace?: Workspace;
+			workspaces?: Workspace[];
 		}
 
 		// interface Error {}

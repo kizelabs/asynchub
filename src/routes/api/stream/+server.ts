@@ -1,104 +1,111 @@
 // src/routes/api/stream/+server.ts
 import type { RequestHandler } from './$types';
 import { db } from '$lib/db';
-import { taskAssignees, tasks } from '$lib/db/schema';
+import { projects } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { getWorkspaceMembership } from '$lib/server/workspace-access';
+import { listWorkspaceTasksWithAssignees } from '$lib/server/services/tasks';
 
-async function listWorkspaceTasks(workspaceId: string) {
-  const [taskRows, assigneeRows] = await Promise.all([
-    db.select({
-      id: tasks.id,
-      workspaceId: tasks.workspaceId,
-      projectId: tasks.projectId,
-      title: tasks.title,
-      status: tasks.status,
-      version: tasks.version,
-      updatedAt: tasks.updatedAt,
-      createdAt: tasks.createdAt
-    }).from(tasks).where(eq(tasks.workspaceId, workspaceId)),
-    db.select({
-      taskId: taskAssignees.taskId,
-      userId: taskAssignees.userId
-    }).from(taskAssignees)
-      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
-      .where(eq(tasks.workspaceId, workspaceId))
-  ]);
+type ProgressMap = Record<string, { total: number; done: number }>;
 
-  const assigneesByTask = assigneeRows.reduce((acc: Record<string, string[]>, row) => {
-    acc[row.taskId] ??= [];
-    acc[row.taskId].push(row.userId);
-    return acc;
-  }, {});
+async function computeProgress(
+	workspaceId: string,
+	tasks: Awaited<ReturnType<typeof listWorkspaceTasksWithAssignees>>
+): Promise<ProgressMap> {
+	const projectRows = await db
+		.select({ id: projects.id })
+		.from(projects)
+		.where(eq(projects.workspaceId, workspaceId));
 
-  return taskRows.map((task) => ({
-    ...task,
-    assigneeIds: assigneesByTask[task.id] ?? []
-  }));
+	const progress: ProgressMap = {};
+	for (const p of projectRows) progress[p.id] = { total: 0, done: 0 };
+	for (const t of tasks) {
+		if (!t.projectId) continue;
+		const entry = progress[t.projectId] ?? { total: 0, done: 0 };
+		entry.total++;
+		if (t.status === 'done') entry.done++;
+		progress[t.projectId] = entry;
+	}
+	return progress;
 }
 
-export const GET: RequestHandler = async ({ url, setHeaders }) => {
-  const workspaceId = url.searchParams.get('workspace');
-  if (!workspaceId) return new Response('Missing workspace', { status: 400 });
+export const GET: RequestHandler = async ({ url, setHeaders, locals }) => {
+	const workspaceId = url.searchParams.get('workspace');
+	if (!workspaceId) return new Response('Missing workspace', { status: 400 });
+	if (!locals.user) return new Response('Unauthorized', { status: 401 });
 
-  setHeaders({
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
+	const membership = await getWorkspaceMembership(locals.user.id, workspaceId);
+	if (!membership) return new Response('Forbidden', { status: 403 });
 
-  let lastVersion = 0;
-  const encoder = new TextEncoder();
-  let ping: ReturnType<typeof setInterval>;
-  let poll: ReturnType<typeof setInterval>;
+	setHeaders({
+		'Content-Type': 'text/event-stream',
+		'Cache-Control': 'no-cache, no-transform',
+		Connection: 'keep-alive',
+		'X-Accel-Buffering': 'no'
+	});
 
-  const stream = new ReadableStream({
-    start(controller) {
-      // Send initial state
-      listWorkspaceTasks(workspaceId).then((initial) => {
-        if (controller.desiredSize !== null) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'INIT', data: initial })}\n\n`));
-        }
-      }).catch(() => {});
+	let lastVersion = 0;
+	const encoder = new TextEncoder();
+	let ping: ReturnType<typeof setInterval>;
+	let poll: ReturnType<typeof setInterval>;
+	let closed = false;
 
-      // Keep-alive ping
-      ping = setInterval(() => {
-        if (controller.desiredSize !== null) {
-          controller.enqueue(encoder.encode(`:ping\n\n`));
-        }
-      }, 15000);
+	const send = (controller: ReadableStreamDefaultController<Uint8Array>, payload: unknown) => {
+		if (closed || controller.desiredSize === null) return;
+		controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+	};
 
-      // Poll for changes (serverless-safe alternative to DB webhooks)
-      poll = setInterval(async () => {
-        try {
-          const updates = await listWorkspaceTasks(workspaceId);
-          
-          if (updates.length > 0 && updates[0].version > lastVersion) {
-            lastVersion = updates[0].version;
-            if (controller.desiredSize !== null) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'SYNC', data: updates })}\n\n`));
-              
-              // Calculate project progress
-              const progressUpdates = updates.reduce((acc: Record<string, { total: number; done: number }>, t) => {
-                if (!t.projectId) return acc;
-                if (!acc[t.projectId]) acc[t.projectId] = { total: 0, done: 0 };
-                acc[t.projectId].total++;
-                if (t.status === 'done') acc[t.projectId].done++;
-                return acc;
-              }, {});
-              
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'PROJECT_PROGRESS', progressUpdates })}\n\n`));
-            }
-          }
-        } catch { /* ignore on disconnect */ }
-      }, 3000);
-    },
-    cancel() {
-      // Handle client disconnect - clear intervals
-      clearInterval(ping);
-      clearInterval(poll);
-    }
-  });
+	const sendError = (
+		controller: ReadableStreamDefaultController<Uint8Array>,
+		phase: 'init' | 'sync',
+		err: unknown
+	) => {
+		const message = err instanceof Error ? err.message : 'Unknown stream error';
+		send(controller, { type: 'ERROR', phase, message });
+	};
 
-  return new Response(stream);
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			(async () => {
+				try {
+					const initial = await listWorkspaceTasksWithAssignees(workspaceId);
+					lastVersion = initial.reduce((max, task) => Math.max(max, task.version), 0);
+					send(controller, { type: 'INIT', data: initial });
+					const progress = await computeProgress(workspaceId, initial);
+					send(controller, { type: 'PROJECT_PROGRESS', progressUpdates: progress });
+				} catch (err) {
+					sendError(controller, 'init', err);
+				}
+			})();
+
+			ping = setInterval(() => {
+				if (closed || controller.desiredSize === null) return;
+				controller.enqueue(encoder.encode(`:ping\n\n`));
+			}, 15000);
+
+			poll = setInterval(async () => {
+				if (closed) return;
+				try {
+					const updates = await listWorkspaceTasksWithAssignees(workspaceId);
+					const maxVersion = updates.reduce((max, task) => Math.max(max, task.version), 0);
+					if (maxVersion <= lastVersion) return;
+
+					lastVersion = maxVersion;
+					send(controller, { type: 'SYNC', data: updates });
+
+					const progress = await computeProgress(workspaceId, updates);
+					send(controller, { type: 'PROJECT_PROGRESS', progressUpdates: progress });
+				} catch (err) {
+					sendError(controller, 'sync', err);
+				}
+			}, 3000);
+		},
+		cancel() {
+			closed = true;
+			clearInterval(ping);
+			clearInterval(poll);
+		}
+	});
+
+	return new Response(stream);
 };

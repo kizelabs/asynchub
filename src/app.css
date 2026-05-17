@@ -5,3 +5,55 @@
   html { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   body { @apply bg-gray-50 text-gray-900 antialiased; }
 }
+
+/* Reusable animations */
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.18s ease-out both;
+  }
+  .animate-scale-in {
+    animation: scale-in 0.18s ease-out both;
+  }
+  .animate-slide-in-right {
+    animation: slide-in-right 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-fade-up {
+    animation: fade-up 0.2s ease-out both;
+  }
+  .press-scale {
+    transition: transform 120ms ease, box-shadow 150ms ease, background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  }
+  .press-scale:active {
+    transform: scale(0.96);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-scale-in,
+  .animate-slide-in-right,
+  .animate-fade-up {
+    animation: none;
+  }
+  .press-scale:active { transform: none; }
+}

@@ -5,9 +5,22 @@
   import Dialog from "$lib/components/Dialog.svelte";
   import { signUp } from "$lib/auth/client";
   import { signUpSchema } from "$lib/validation";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
+
+  // Only accept same-origin relative paths as callbackURL to prevent open redirects.
+  const callbackURL = $derived.by(() => {
+    const r = page.url.searchParams.get('redirect');
+    return r && r.startsWith('/') && !r.startsWith('//') ? r : '/onboarding';
+  });
+  const prefilledEmail = page.url.searchParams.get('email') ?? '';
+  const signInHref = $derived.by(() => {
+    const search = page.url.searchParams.toString();
+    return search ? `/auth/sign-in?${search}` : '/auth/sign-in';
+  });
 
   let name = $state("");
-  let email = $state("");
+  let email = $state(prefilledEmail);
   let password = $state("");
   let confirmPassword = $state("");
   let validationErrors = $state<Record<string, string[]>>({});
@@ -35,7 +48,7 @@
     loading = true;
     const { error: authError } = await signUp.email({
       name, email, password,
-      callbackURL: "/onboarding",
+      callbackURL,
       fetchOptions: { throw: false }
     });
     loading = false;
@@ -52,8 +65,11 @@
         open: true,
         variant: 'success',
         title: 'Account created!',
-        description: `We sent a verification email to ${email}. Please check your inbox before signing in.`,
+        description: `We sent a verification email to ${email}. Redirecting you to sign in...`,
       };
+      const params = new URLSearchParams(page.url.searchParams);
+      if (!params.has('email')) params.set('email', email);
+      setTimeout(() => goto(`/auth/sign-in?${params.toString()}`), 1500);
     }
   }
 </script>
@@ -83,12 +99,12 @@
       </div>
     {/if}
 
-    <Button type="submit" loading={loading} disabled={!isFormValid} class="mt-4">Create account</Button>
+    <Button type="submit" loading={loading} class="mt-4">Create account</Button>
   </form>
 
   <p class="mt-6 text-center text-sm text-gray-600">
     Already have an account?
     <!-- eslint-disable-next-line svelte/no-raw-href -->
-    <a href="/auth/sign-in" class="font-medium text-gray-900 hover:underline">Sign in</a>
+    <a href={signInHref} class="font-medium text-gray-900 hover:underline">Sign in</a>
   </p>
 </AuthLayout>
